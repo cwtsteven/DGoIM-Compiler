@@ -2,18 +2,27 @@ let rip = "%rip"
 let eax = "%eax"
 let rax = "%rax"
 let rbx = "%rbx"
+let ebx = "%ebx"
 let rcx = "%rcx"
+let ecx = "%ecx"
 let rdx = "%rdx"
 let rsi = "%rsi" 
 let rdi = "%rdi"
 
 let rsp = "%rsp"
+let rbp = "%rbp"
 let r15 = "%r15"
 let r14 = "%r14"
 let r13 = "%r13" 
+let r12 = "%r12" 
+let r11 = "%r11" 
+let r10 = "%r10" 
 
 let nop = 
 		"\t\tnop\n"
+
+let ud2 =
+		"\t\tud2\n"
 
 let add src tar  =
 		"\t\tadd\t\t"^src^", "^tar^"\n"
@@ -66,6 +75,12 @@ let cmpb im reg  =
 let rep_movsb =
 		"\t\trep\t\tmovsb\n"
 
+let rep_movsd =
+		"\t\trep\t\tmovsd\n"
+
+let rep_movsq =
+		"\t\trep\t\tmovsq\n"
+
 let bswap reg = 
 		"\t\tbswap\t\t"^reg^"\n"
 
@@ -80,3 +95,9 @@ let pop reg =
 
 let lookup offset reg =
 		movq (string_of_int offset^"("^rsp^")") reg
+
+let call_reg reg = 
+		"\t\tcallq\t\t*"^reg^"\n"
+
+let call label =
+		"\t\tcall\t\t"^label^"\n"

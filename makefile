@@ -16,3 +16,5 @@ all:
 clean:
 	rm -rf _build/
 	rm Main.native
+	rm *.s 
+	rm *.out 

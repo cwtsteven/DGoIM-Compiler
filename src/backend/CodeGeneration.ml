@@ -10,12 +10,6 @@ let default_code_space = 10000000000
 type s_type = { prompt: string; lambda: string; app: string; promo: string; var: string }
 let s = { prompt = "$0"; lambda = "$1"; app = "$2"; promo = "$4"; var = "$5"; } 
 
-
-(*
-type b_type = { start: string; der: string; app_r: string; app_l: string; con: string; add_r: string; add_l: string }
-let b = { start = "$0"; der = "$1"; app_r = "$2"; app_l = "$3"; con = "$4"; add_r = "$5"; add_l = "$6" }
-*)
-
 let count = ref 0 
 
 
@@ -40,52 +34,12 @@ let merge_out out_t out_u =
 	out
 
 (* runtime code *)
-
-(* changed: eax *)
-(* assumed: rax - jump target addr *)
-(* return:  eax - relative displacement from s to rax *)
-let calret s = 
-			sub s rax
-	^		sub "$5" rax
-
-(* changed: rax, rcx, rdi, stack_c, r14 *) 
-(* assumed: rax - return addr of the block, rsi - starting addr, rcx - ending addr *)
-(* return:  entry addr of the copied block in rax 
-let cpy = 
-			sub	rsi rcx (* size *)
-	^		mov stack_c rdi 
-	^		mov rdi r14
-	^		add rcx stack_c 
-	^		rep_movsb
-	^		movb "$0xe9" (mem 0 stack_c)
-	^		calret stack_c
-	^		mov eax (mem 1 stack_c) 
-	^		add "$5" stack_c 
-	^		mov r14 rax 
-*)
-
-(* changed: r14 *) 
-(* assumed: rax - jmp target addr, rdi - modify target addr *)
-(* return:  nothing special *)
-(*
-let prn = 
-			mov rax r14
-	^		movb "$0xe9" (mem 0 rdi)
-	^		calret rdi
-	^		mov eax (mem 1 rdi)
-	^		mov r14 rax 
-*)
-
-let cpy = 
-			sub	rsi rcx (* size *)
-	^		rep_movsb
-
-
 let ret node = 
 		node ^ "_ret:\n"
 	^		sub "$8" stack_b
 	^		mov (mem 0 stack_b) rax 
 	^		jmp_reg rax
+	^		ud2 
 
 
 (* 	
@@ -104,51 +58,30 @@ let rec term_to_code term =
 					let _ = count := !count + 1 in 
 					
 					let code = 
-							var^"_s_in:\n"
+							var^"_in_up:\n"
+								(* test if the value connected to this var-node has been copied or not *)
 						^		mov "$1" rax
 						^		cmp "$0" rax
-						^		je (var^"_long")
+						^		je (var^"_out_up_jmp") (* jump to the rewired target *)
+
+								(* test if previous node is var *)
 						^		lookup 0 rax
 						^		cmp s.var rax 
-						^		jne (var^"_n_dummy")
-						^		pop rax
-						^		pop rax
-						^		pop rax
+						^		je (var^"_out_up")
 								(* internal jump *) 
-						^	var^"_n_dummy:\n"
-						^		lea (var^"_long_jump") rip rax 
+						^	var^"_not_from_var:\n" 
+						^		lea (var^"_out_up_jmp") rip rax 
 						^		push rax 
-						^		lea (var^"_s_in") rip rax 
+						^		lea (var^"_in_up") rip rax 
 						^		push rax 
 						^		push s.var 
-						^	var^"_n_out:\n"
-						^		lea (var^"_s_out") rip rax
-						^		mov rax (mem 0 stack_b) 
-						^		add "$8" stack_b 
-								(* internal jump *) 
-						^	var^"_n_jmp:\n" 
-						^		movabs "$0" rax
+						^	var^"_out_up:\n"
+						^	var^"_out_up_jmp:\n" 
+						^		movabs "$0" rax (* should have been rewritten before *)
 						^		jmp_reg rax
-						^	var^"_n_in:\n"
-								(* internal jump *)
-						^	var^"_s_out:\n"
-								(* external jump *) 
-						^ 	ret var 
-
-						^	var^"_long:\n"
-						^		lea (var^"_long_out") rip rax
-						^		mov rax (mem 0 stack_b) (* ret addr *) 
-						^		add "$8" stack_b 
-						^	var^"_long_jump:\n"
-						^		movabs "$0" rax 
-						^		jmp_reg rax
-								(* internal jump *) 
-						^	var^"_long_out:\n"
-								(* external jump *) 
-						^	ret (var^"_long") 
-
+						^		ud2 
 					in            
-					(var^"_s_in", code, let vtbl = Hashtbl.create 0 in Hashtbl.add vtbl v [var^"_n_jmp"]; vtbl)
+					(var^"_in_up", code, let vtbl = Hashtbl.create 0 in Hashtbl.add vtbl v [var^"_out_up_jmp"]; vtbl)
 
     
 	| Const n -> 	let box = "box_" ^ string_of_int (!count) in
@@ -161,30 +94,30 @@ let rec term_to_code term =
 					let code = 
 						box^"_start:\n"
 
-						^	promo^"_s_in:\n" 
+						^	promo^"_in_up:\n" 
 						^		lookup 0 rax
 								(* internal jump *) 
-						^	promo^"_n_out:\n"
+						^	promo^"_out_up:\n"
 						^		cmp s.var rax 
-						^		jne (promo^"_n_out_dummy")
+						^		jne (promo^"_not_from_var")
 						^		pop rax
 						^		pop rax
 						^		pop rax
 								(* no rewrites atm *)
 								(* rewrite for !-C *)
-						^	promo^"_n_out_dummy:\n" 
+						^	promo^"_not_from_var:\n" 
 								(* external jump *) 
 
-						^	const^"_s_in:\n" 
+						^	const^"_in_up:\n" 
 						^		pop rax
 						^		push ("$"^(string_of_int n)) 
 								(* internal jump *) 
-						^	const^"_s_out:\n"
+						^	const^"_in_dn:\n"
 								(* external jump *)
 
-						^	promo^"_n_in:\n"
+						^	promo^"_out_dn:\n"
 								(* internal jump *)
-						^	promo^"_s_out:\n"
+						^	promo^"_in_dn:\n"
 						^	box^"_end:\n"
 						^	ret box 
 					in
@@ -206,47 +139,63 @@ let rec term_to_code term =
 						^	cmp "$0" rax
 						^	je (abs^"_t")
 
-						^	promo^"_s_in:\n" 
+						^	promo^"_in_up:\n" 
 								(* internal jump *) 
-						^	promo^"_n_out:\n"
+						^	promo^"_out_up:\n"
 						^ 		lookup 0 rax 
-						^	promo^"_n_out_con:\n"
+						^	promo^"_out_up_var:\n"
 						^		cmp s.var rax 
-						^		jne (promo^"_n_out_dummy")
+						^		jne (promo^"_not_from_var")
+								(* modified the first line *)
 						^		pop rax (* var in stack *)
-						^		pop rdi (* var_s_in *)
+						^		pop rdi (* var_in_up *)
 						^		lea (abs^"_modify") rip rsi 
 						^		lea (abs^"_modify_end") rip rcx 
-						^		cpy 
-						^		lea (box^"_start") rip rsi 
-						^		lea (box^"_ret_end") rip rcx 
-						^		sub rsi rcx (* size *)
-						^		mov rcx rax (* remember the size *)
-						^		mov stack_c rdi 
+						^		sub	rsi rcx (* size *) 
 						^		rep_movsb 
-						^		pop rdi 
+
+								(* copying the box *)
+						^		lea (box^"_start") rip rsi 
+						^		lea (box^"_end") rip rax
+						^		mov stack_c rdi 
+						^		call_reg (mem (-8) rbp)
+(*
+						^		sub	rsi rax
+						^		mov rax r11 (* remember the size *)
+						^		mov "$8" r12 
+						^		mov "$0" rdx
+						^		div r12 
+						^		mov eax ecx (* size *)
+						^		rep_movsq
+						^		mov rdx rcx 
+						^		rep_movsb
+						^		mov r11 rax
+*)
+
+						^		pop rdi (* var_out_up_jmp *)
 						^		mov stack_c (mem 2 rdi)
 						^		mov stack_c rdi 
 						^ 		add rax stack_c
 						^		jmp_reg rdi  
+						^		ud2 
 								(* rewrite for !-C *)
-						^	promo^"_n_out_dummy:\n"
+						^	promo^"_not_from_var:\n"
 								(* external jump *) 
 
-						^	abs^"_s_in:\n"
+						^	abs^"_in_up:\n"
 						^		cmp s.app rax 
-						^		je (abs^"_r_out") 
+						^		je (abs^"_beta") 
 						^		pop rax 
 						^		push s.lambda 
-						^	abs^"_s_out:\n"
+						^	abs^"_r_up:\n"
 								(* external jump *)
-						^	promo^"_n_in:\n"
+						^	promo^"_out_dn:\n"
 								(* internal jump *)
-						^	promo^"_s_out:\n" 
-						^		jmp (box^"_end") 
+						^	promo^"_in_dn:\n" 
+						^		jmp (box^"_ret") 
 
-						^	abs^"_r_out:\n"
-								(* rewrite for lambda *)
+						^	abs^"_beta:\n"
+								(* beta-rewiring *)
 								(* connect horizontal line *)
 						^		pop rax (* app *)
 						^		pop rax (* arg addr *)
@@ -264,24 +213,25 @@ let rec term_to_code term =
 						^		lea (abs^"_modify") rip rsi 
 						^		lea (abs^"_modify_end") rip rcx 
 						^		mov rax rdi 
-						^		cpy 
+						^		sub	rsi rcx (* size *) 
+						^		rep_movsb  
 						^		lea (abs^"_modify") rip rsi 
 						^		lea (abs^"_modify_end") rip rcx 
 						^		lea (box^"_start") rip rdi 
-						^		cpy 
+						^		sub	rsi rcx (* size *) 
+						^		rep_movsb  
 								(* external jump *) 
 						^	abs^"_t:\n"
-						^		lea (box^"_end") rip rax
-						^		mov rax (mem 0 stack_b)
+						^		lea (box^"_ret") rip rax
+						^		mov rax (mem 0 stack_b) 
 						^		add "$8" stack_b
 						^	code_t 
 
 						^	abs^"_modify:\n"
 						^		mov "$0" rax 
 						^	abs^"_modify_end:\n"
-						^	box^"_end:\n"
 						^ 	ret box
-						^	box^"_ret_end:\n"
+						^	box^"_end:\n"
 
 					in
 					(box^"_start", code, (Hashtbl.remove vtbl v; vtbl)) 
@@ -382,7 +332,8 @@ let rec term_to_code term =
 						^		lea (addi^"_modify") rip rsi 
 						^		lea (addi^"_modify_end") rip rcx 
 						^		lea (addi^"_s_in") rip rdi 
-						^		cpy 
+						^		sub	rsi rcx (* size *) 
+						^		rep_movsb  
 						^		jmp (box^"_end") 
 
 						^	addi^"_modify:\n"
@@ -424,10 +375,11 @@ let rec term_to_code term =
 
 let fun_prefix = 
 		"\t\tpush\t\t%rbp\n"
-	^	"\t\tmov\t\t%rsp, %rbp\n"
+	^	"\t\tmov\t\t%rsp, %rbp\n" 
 
 let fun_postfix = 
-		"\t\tpop\t\t%rbp\n"
+		"\t\tmov\t\t%rbp, %rsp\n"
+	^	"\t\tpop\t\t%rbp\n"
 	^	"\t\tret\n"
 
 let prefix = 
@@ -442,6 +394,29 @@ let prefix =
 let error_exit = 
 		"error:\n"
 
+(* assumed: rsi - starting address of the source
+			rax - ending address of the source 
+			rdi - target address 
+   changed: rsi, rax, rdi, rdx, r11, r12, rcx 
+   return: rax - size 
+*)
+let cpy = 
+			"cpy:\n"
+	(*^		fun_prefix*)
+	^		sub	rsi rax
+	^		mov rax r11 (* remember the size *)
+	^		mov "$8" r12 
+	^		mov "$0" rdx
+	^		div r12 
+	^		mov eax ecx (* size *)
+	^		rep_movsq
+	^		mov rdx rcx 
+	^		rep_movsb
+	^ 		mov r11 rax 
+	(*^ 		fun_postfix*)
+	^ 		"\t\tret\n"
+
+
 let generate term = 
 		print_string ((string_of_term term)^"\n");
 		prefix ^ "\n"
@@ -450,7 +425,7 @@ let generate term =
 	^		"\t\t.text\n"
 	^	"_main:\n"
 	^		fun_prefix
-	^		"\n"
+	^		"\n" 
 	(*
 	^		"\t\t# change the access permission of section .text to rwx\n"
 	^		"\t\tlea\t\t_main(%rip), %rdi\n"
@@ -498,12 +473,13 @@ let generate term =
 	^		mov rax stack_b
 	^		"\n"
 
+	^		lea "cpy" rip rax
+	^ 		push rax 
+
 	^		lea "graph_start" rip rsi 
-	^		lea "graph_end" rip rcx 
+	^		lea "graph_end" rip rax 
 	^		mov stack_c rdi 
-	^		sub	rsi rcx
-	^		mov rcx rax
-	^		rep_movsb
+	^		call_reg (mem (-8) rbp) 
 	^		push stack_c
 	^		add rax stack_c
 	^		jmp "code_space_entry"
@@ -511,33 +487,40 @@ let generate term =
 
 	^	(let (in_t, code_t, ret_t) = term_to_code term in 
 		"graph_start:\n"
-	^	"start_out:\n"
+	^	"start_in_up:\n"
 	^		push s.prompt 
-	^		lea "start_in" rip rax
+	^		lea "start_in_dn" rip rax
 	^		mov rax (mem 0 stack_b) 
 	^		add "$8" stack_b
 			(* external jump *)
 	^	code_t
-	^	"start_in:\n"
+	^	"start_in_dn:\n"
 	^		pop r14 
 	^		pop rax 
 	^		push r14
 	^		jmp_reg rax 
+	^		ud2 
 	^	"graph_end:\n"
 		)
 	^	"\n"
-	^	"code_space_entry:\n"
+	^	"code_space_entry:\n"  
 	^		pop rdi 
+
+
 	^		lea "exit" rip rax 
 	^		push rax
 	^		jmp_reg rdi 
+	^		ud2 
 	^	"\n"
 	^	"exit:\n" 
 	^		pop rsi
+	^		pop r10 (* cpy address *) 
 	^		lea	"int.str" rip rdi
 	^		"\t\tcall _printf\n"
 	^	fun_postfix
 	^	"\n"
+
+	^ 	cpy 
 
 	^	error_exit
 	^	"\n"
